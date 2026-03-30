@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Top paddle (red) -->
+    <path
+        android:fillColor="#FF4757"
+        android:pathData="M24,28 Q54,22 84,28 L84,36 Q54,30 24,36 Z" />
+
+    <!-- Bottom paddle (blue) -->
+    <path
+        android:fillColor="#1E90FF"
+        android:pathData="M24,72 Q54,78 84,72 L84,80 Q54,86 24,80 Z" />
+
+    <!-- Ball (white circle via path) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,46 a8,8 0 1,0 0.001,0 Z" />
+
+    <!-- Center dashed line segments -->
+    <path
+        android:strokeColor="#888899"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M20,54 L30,54 M40,54 L50,54 M58,54 L68,54 M78,54 L88,54" />
+
+</vector>
