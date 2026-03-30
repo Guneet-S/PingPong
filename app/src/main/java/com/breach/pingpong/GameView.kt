@@ -12,46 +12,48 @@ import android.view.SurfaceView
 class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback, Runnable {
 
     private val surfaceHolder: SurfaceHolder = holder
-    private var gameThread: Thread? = null
+
     @Volatile private var isRunning = false
+    private var gameThread: Thread? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private var screenW = 0
-    private var screenH = 0
+    @Volatile private var screenW = 0
+    @Volatile private var screenH = 0
 
     private var ballX = 0f
     private var ballY = 0f
     private var ballRadius = 20f
-    private var ballSpeedX = 8f
-    private var ballSpeedY = -8f
+    private var ballSpeedX = 0f
+    private var ballSpeedY = 0f
 
     private var playerX = 0f
     private var playerY = 0f
-    private var paddleW = 250f
-    private var paddleH = 30f
+    private var paddleW = 0f
+    private var paddleH = 0f
 
     private var cpuX = 0f
     private var cpuY = 0f
-    private var cpuSpeed = 6f
+    private var cpuSpeed = 0f
 
     private var playerScore = 0
     private var cpuScore = 0
 
     @Volatile private var touchX = -1f
 
+    private var initialized = false
+
     init {
-        surfaceHolder.addCallback(this)
+        holder.addCallback(this)
         isFocusable = true
     }
 
     private fun initGame(w: Int, h: Int) {
         screenW = w
         screenH = h
-
-        ballRadius = w * 0.025f
         paddleW = w * 0.28f
         paddleH = h * 0.022f
+        ballRadius = w * 0.025f
         cpuSpeed = h * 0.005f
 
         val speed = h * 0.008f
@@ -62,32 +64,30 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
 
         playerX = (w - paddleW) / 2f
         playerY = h - paddleH * 4f
-
         cpuX = (w - paddleW) / 2f
         cpuY = paddleH * 3f
+        initialized = true
     }
 
     private fun resetBall(goingDown: Boolean) {
         val speed = screenH * 0.008f
         ballX = screenW / 2f
         ballY = screenH / 2f
-        ballSpeedX = speed * (if (Math.random() > 0.5) 1f else -1f)
+        ballSpeedX = speed * if (Math.random() > 0.5) 1f else -1f
         ballSpeedY = if (goingDown) speed else -speed
     }
 
     private fun update() {
-        if (screenW == 0 || screenH == 0) return
+        if (!initialized) return
 
         ballX += ballSpeedX
         ballY += ballSpeedY
 
-        // Touch: move player paddle
         val tx = touchX
         if (tx >= 0f) {
             playerX = (tx - paddleW / 2f).coerceIn(0f, screenW - paddleW)
         }
 
-        // CPU: follow ball
         val cpuCenter = cpuX + paddleW / 2f
         when {
             cpuCenter < ballX - cpuSpeed -> cpuX += cpuSpeed
@@ -95,7 +95,6 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         }
         cpuX = cpuX.coerceIn(0f, screenW - paddleW)
 
-        // Wall bounce
         if (ballX - ballRadius <= 0f) {
             ballX = ballRadius
             ballSpeedX = Math.abs(ballSpeedX)
@@ -104,39 +103,36 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
             ballSpeedX = -Math.abs(ballSpeedX)
         }
 
-        // Player paddle collision
+        // Player paddle hit
         if (ballSpeedY > 0
             && ballY + ballRadius >= playerY
             && ballY - ballRadius <= playerY + paddleH
-            && ballX + ballRadius >= playerX
-            && ballX - ballRadius <= playerX + paddleW
+            && ballX >= playerX - ballRadius
+            && ballX <= playerX + paddleW + ballRadius
         ) {
             ballY = playerY - ballRadius
             ballSpeedY = -Math.abs(ballSpeedY)
-            val halfW = paddleW / 2f
-            if (halfW > 0f) {
-                val hit = (ballX - (playerX + halfW)) / halfW
-                ballSpeedX = hit * screenH * 0.008f
+            if (paddleW > 0f) {
+                val hit = (ballX - (playerX + paddleW / 2f)) / (paddleW / 2f)
+                ballSpeedX = hit.coerceIn(-1.5f, 1.5f) * screenH * 0.008f
             }
         }
 
-        // CPU paddle collision
+        // CPU paddle hit
         if (ballSpeedY < 0
             && ballY - ballRadius <= cpuY + paddleH
             && ballY + ballRadius >= cpuY
-            && ballX + ballRadius >= cpuX
-            && ballX - ballRadius <= cpuX + paddleW
+            && ballX >= cpuX - ballRadius
+            && ballX <= cpuX + paddleW + ballRadius
         ) {
             ballY = cpuY + paddleH + ballRadius
             ballSpeedY = Math.abs(ballSpeedY)
-            val halfW = paddleW / 2f
-            if (halfW > 0f) {
-                val hit = (ballX - (cpuX + halfW)) / halfW
-                ballSpeedX = hit * screenH * 0.008f
+            if (paddleW > 0f) {
+                val hit = (ballX - (cpuX + paddleW / 2f)) / (paddleW / 2f)
+                ballSpeedX = hit.coerceIn(-1.5f, 1.5f) * screenH * 0.008f
             }
         }
 
-        // Scoring
         if (ballY - ballRadius > screenH) {
             cpuScore++
             resetBall(false)
@@ -147,34 +143,35 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     private fun draw() {
-        val canvas: Canvas = try {
-            surfaceHolder.lockCanvas() ?: return
-        } catch (e: Exception) {
-            return
-        }
+        if (!surfaceHolder.surface.isValid) return
+        var canvas: Canvas? = null
         try {
+            canvas = surfaceHolder.lockCanvas()
+            if (canvas == null) return
+
             canvas.drawColor(Color.parseColor("#0D0D1A"))
 
-            // Dashed center line
+            if (!initialized) return
+
+            // Center dashed line
             paint.color = Color.parseColor("#333355")
             paint.strokeWidth = 4f
+            paint.style = Paint.Style.STROKE
             var x = 0f
             while (x < screenW) {
                 canvas.drawLine(x, screenH / 2f, x + 24f, screenH / 2f, paint)
                 x += 48f
             }
 
-            // CPU paddle (red)
-            paint.color = Color.parseColor("#FF4757")
-            canvas.drawRoundRect(
-                RectF(cpuX, cpuY, cpuX + paddleW, cpuY + paddleH), 14f, 14f, paint
-            )
+            paint.style = Paint.Style.FILL
 
-            // Player paddle (blue)
+            // CPU paddle
+            paint.color = Color.parseColor("#FF4757")
+            canvas.drawRoundRect(RectF(cpuX, cpuY, cpuX + paddleW, cpuY + paddleH), 14f, 14f, paint)
+
+            // Player paddle
             paint.color = Color.parseColor("#1E90FF")
-            canvas.drawRoundRect(
-                RectF(playerX, playerY, playerX + paddleW, playerY + paddleH), 14f, 14f, paint
-            )
+            canvas.drawRoundRect(RectF(playerX, playerY, playerX + paddleW, playerY + paddleH), 14f, 14f, paint)
 
             // Ball
             paint.color = Color.WHITE
@@ -186,11 +183,16 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
             paint.textAlign = Paint.Align.CENTER
             canvas.drawText("$cpuScore", screenW / 2f, screenH * 0.33f, paint)
             canvas.drawText("$playerScore", screenW / 2f, screenH * 0.72f, paint)
+
+        } catch (e: Exception) {
+            // surface temporarily unavailable
         } finally {
-            try {
-                surfaceHolder.unlockCanvasAndPost(canvas)
-            } catch (e: Exception) {
-                // surface was destroyed
+            if (canvas != null) {
+                try {
+                    surfaceHolder.unlockCanvasAndPost(canvas)
+                } catch (e: Exception) {
+                    // ignore
+                }
             }
         }
     }
@@ -199,51 +201,42 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         val targetMs = 1000L / 60L
         while (isRunning) {
             val start = System.currentTimeMillis()
-            update()
-            draw()
-            val elapsed = System.currentTimeMillis() - start
-            val sleep = targetMs - elapsed
+            try {
+                update()
+                draw()
+            } catch (e: Exception) {
+                // keep loop alive
+            }
+            val sleep = targetMs - (System.currentTimeMillis() - start)
             if (sleep > 0) {
-                try {
-                    Thread.sleep(sleep)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                }
+                try { Thread.sleep(sleep) } catch (e: InterruptedException) { break }
             }
         }
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        // dimensions may not be set yet; surfaceChanged fires right after with real values
-    }
+    override fun surfaceCreated(holder: SurfaceHolder) { }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        if (width > 0 && height > 0) {
-            if (screenW == 0) {
-                initGame(width, height)
-            } else {
-                screenW = width
-                screenH = height
-            }
-            if (!isRunning) {
-                isRunning = true
-                gameThread = Thread(this).also { it.start() }
-            }
+        if (width <= 0 || height <= 0) return
+        if (!initialized) {
+            initGame(width, height)
         }
+        startThread()
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        stopThread()
+    }
+
+    private fun startThread() {
+        if (isRunning) return
+        isRunning = true
+        gameThread = Thread(this, "GameThread").also { it.start() }
+    }
+
+    private fun stopThread() {
         isRunning = false
-        var retry = true
-        while (retry) {
-            try {
-                gameThread?.join()
-                retry = false
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                retry = false
-            }
-        }
+        gameThread?.join(500)
         gameThread = null
     }
 
@@ -255,18 +248,9 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         return true
     }
 
-    fun pause() {
-        isRunning = false
-        try { gameThread?.join() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
-        gameThread = null
-    }
+    fun pause() { stopThread() }
 
     fun resume() {
-        // Thread is managed by surfaceChanged/surfaceDestroyed
-        // Only restart if surface is already available
-        if (screenW > 0 && screenH > 0 && !isRunning) {
-            isRunning = true
-            gameThread = Thread(this).also { it.start() }
-        }
+        if (initialized && !isRunning) startThread()
     }
 }
