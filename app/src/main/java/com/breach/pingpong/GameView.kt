@@ -13,165 +13,168 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
 
     private val surfaceHolder: SurfaceHolder = holder
     private var gameThread: Thread? = null
-    private var isRunning = false
+    @Volatile private var isRunning = false
 
-    // Paint
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    // Screen dimensions
     private var screenW = 0
     private var screenH = 0
 
-    // Ball
     private var ballX = 0f
     private var ballY = 0f
-    private var ballRadius = 0f
-    private var ballSpeedX = 0f
-    private var ballSpeedY = 0f
+    private var ballRadius = 20f
+    private var ballSpeedX = 8f
+    private var ballSpeedY = -8f
 
-    // Player paddle (bottom)
     private var playerX = 0f
     private var playerY = 0f
-    private val paddleW get() = screenW * 0.25f
-    private val paddleH get() = screenH * 0.02f
+    private var paddleW = 250f
+    private var paddleH = 30f
 
-    // CPU paddle (top)
     private var cpuX = 0f
     private var cpuY = 0f
-    private var cpuSpeed = 0f
+    private var cpuSpeed = 6f
 
-    // Scores
     private var playerScore = 0
     private var cpuScore = 0
 
-    // Touch
-    private var touchX = -1f
+    @Volatile private var touchX = -1f
 
     init {
         surfaceHolder.addCallback(this)
         isFocusable = true
     }
 
-    private fun initGame() {
-        ballRadius = screenW * 0.02f
-        val baseSpeed = screenH * 0.007f
-        cpuSpeed = screenH * 0.004f
+    private fun initGame(w: Int, h: Int) {
+        screenW = w
+        screenH = h
 
+        ballRadius = w * 0.025f
+        paddleW = w * 0.28f
+        paddleH = h * 0.022f
+        cpuSpeed = h * 0.005f
+
+        val speed = h * 0.008f
+        ballX = w / 2f
+        ballY = h / 2f
+        ballSpeedX = speed
+        ballSpeedY = -speed
+
+        playerX = (w - paddleW) / 2f
+        playerY = h - paddleH * 4f
+
+        cpuX = (w - paddleW) / 2f
+        cpuY = paddleH * 3f
+    }
+
+    private fun resetBall(goingDown: Boolean) {
+        val speed = screenH * 0.008f
         ballX = screenW / 2f
         ballY = screenH / 2f
-        ballSpeedX = baseSpeed
-        ballSpeedY = -baseSpeed
-
-        playerX = (screenW - paddleW) / 2f
-        playerY = screenH - paddleH * 3
-
-        cpuX = (screenW - paddleW) / 2f
-        cpuY = paddleH * 2
+        ballSpeedX = speed * (if (Math.random() > 0.5) 1f else -1f)
+        ballSpeedY = if (goingDown) speed else -speed
     }
 
     private fun update() {
         if (screenW == 0 || screenH == 0) return
 
-        // Move ball
         ballX += ballSpeedX
         ballY += ballSpeedY
 
-        // Move player paddle to touch
-        if (touchX >= 0) {
-            val targetX = touchX - paddleW / 2f
-            playerX = targetX.coerceIn(0f, screenW - paddleW)
+        // Touch: move player paddle
+        val tx = touchX
+        if (tx >= 0f) {
+            playerX = (tx - paddleW / 2f).coerceIn(0f, screenW - paddleW)
         }
 
-        // CPU follows ball
+        // CPU: follow ball
         val cpuCenter = cpuX + paddleW / 2f
-        if (cpuCenter < ballX - cpuSpeed) {
-            cpuX += cpuSpeed
-        } else if (cpuCenter > ballX + cpuSpeed) {
-            cpuX -= cpuSpeed
+        when {
+            cpuCenter < ballX - cpuSpeed -> cpuX += cpuSpeed
+            cpuCenter > ballX + cpuSpeed -> cpuX -= cpuSpeed
         }
         cpuX = cpuX.coerceIn(0f, screenW - paddleW)
 
-        // Wall bounce (left/right)
+        // Wall bounce
         if (ballX - ballRadius <= 0f) {
             ballX = ballRadius
-            ballSpeedX = -ballSpeedX
+            ballSpeedX = Math.abs(ballSpeedX)
         } else if (ballX + ballRadius >= screenW) {
             ballX = screenW - ballRadius
-            ballSpeedX = -ballSpeedX
+            ballSpeedX = -Math.abs(ballSpeedX)
         }
 
-        // Player paddle collision (bottom)
-        val playerRect = RectF(playerX, playerY, playerX + paddleW, playerY + paddleH)
-        if (ballSpeedY > 0 &&
-            ballY + ballRadius >= playerRect.top &&
-            ballY - ballRadius <= playerRect.bottom &&
-            ballX + ballRadius >= playerRect.left &&
-            ballX - ballRadius <= playerRect.right
+        // Player paddle collision
+        if (ballSpeedY > 0
+            && ballY + ballRadius >= playerY
+            && ballY - ballRadius <= playerY + paddleH
+            && ballX + ballRadius >= playerX
+            && ballX - ballRadius <= playerX + paddleW
         ) {
-            ballY = playerRect.top - ballRadius
-            ballSpeedY = -ballSpeedY
-            // Angle based on hit position
-            val hitPos = (ballX - (playerX + paddleW / 2f)) / (paddleW / 2f)
-            ballSpeedX = hitPos * screenH * 0.007f
+            ballY = playerY - ballRadius
+            ballSpeedY = -Math.abs(ballSpeedY)
+            val halfW = paddleW / 2f
+            if (halfW > 0f) {
+                val hit = (ballX - (playerX + halfW)) / halfW
+                ballSpeedX = hit * screenH * 0.008f
+            }
         }
 
-        // CPU paddle collision (top)
-        val cpuRect = RectF(cpuX, cpuY, cpuX + paddleW, cpuY + paddleH)
-        if (ballSpeedY < 0 &&
-            ballY - ballRadius <= cpuRect.bottom &&
-            ballY + ballRadius >= cpuRect.top &&
-            ballX + ballRadius >= cpuRect.left &&
-            ballX - ballRadius <= cpuRect.right
+        // CPU paddle collision
+        if (ballSpeedY < 0
+            && ballY - ballRadius <= cpuY + paddleH
+            && ballY + ballRadius >= cpuY
+            && ballX + ballRadius >= cpuX
+            && ballX - ballRadius <= cpuX + paddleW
         ) {
-            ballY = cpuRect.bottom + ballRadius
-            ballSpeedY = -ballSpeedY
-            val hitPos = (ballX - (cpuX + paddleW / 2f)) / (paddleW / 2f)
-            ballSpeedX = hitPos * screenH * 0.007f
+            ballY = cpuY + paddleH + ballRadius
+            ballSpeedY = Math.abs(ballSpeedY)
+            val halfW = paddleW / 2f
+            if (halfW > 0f) {
+                val hit = (ballX - (cpuX + halfW)) / halfW
+                ballSpeedX = hit * screenH * 0.008f
+            }
         }
 
-        // Score: ball goes past bottom (CPU scores)
+        // Scoring
         if (ballY - ballRadius > screenH) {
             cpuScore++
-            resetBall(goingDown = false)
-        }
-
-        // Score: ball goes past top (Player scores)
-        if (ballY + ballRadius < 0) {
+            resetBall(false)
+        } else if (ballY + ballRadius < 0f) {
             playerScore++
-            resetBall(goingDown = true)
+            resetBall(true)
         }
-    }
-
-    private fun resetBall(goingDown: Boolean) {
-        val baseSpeed = screenH * 0.007f
-        ballX = screenW / 2f
-        ballY = screenH / 2f
-        ballSpeedX = baseSpeed * (if (Math.random() > 0.5) 1f else -1f)
-        ballSpeedY = if (goingDown) baseSpeed else -baseSpeed
     }
 
     private fun draw() {
-        val canvas: Canvas = surfaceHolder.lockCanvas() ?: return
+        val canvas: Canvas = try {
+            surfaceHolder.lockCanvas() ?: return
+        } catch (e: Exception) {
+            return
+        }
         try {
-            // Background
-            canvas.drawColor(Color.parseColor("#1A1A2E"))
+            canvas.drawColor(Color.parseColor("#0D0D1A"))
 
-            // Center line (dashed effect via segments)
-            paint.color = Color.parseColor("#444466")
-            paint.strokeWidth = 3f
+            // Dashed center line
+            paint.color = Color.parseColor("#333355")
+            paint.strokeWidth = 4f
             var x = 0f
             while (x < screenW) {
-                canvas.drawLine(x, screenH / 2f, x + 20f, screenH / 2f, paint)
-                x += 40f
+                canvas.drawLine(x, screenH / 2f, x + 24f, screenH / 2f, paint)
+                x += 48f
             }
 
-            // CPU paddle
-            paint.color = Color.parseColor("#E94560")
-            canvas.drawRoundRect(cpuX, cpuY, cpuX + paddleW, cpuY + paddleH, 12f, 12f, paint)
+            // CPU paddle (red)
+            paint.color = Color.parseColor("#FF4757")
+            canvas.drawRoundRect(
+                RectF(cpuX, cpuY, cpuX + paddleW, cpuY + paddleH), 14f, 14f, paint
+            )
 
-            // Player paddle
-            paint.color = Color.parseColor("#0F3460")
-            canvas.drawRoundRect(playerX, playerY, playerX + paddleW, playerY + paddleH, 12f, 12f, paint)
+            // Player paddle (blue)
+            paint.color = Color.parseColor("#1E90FF")
+            canvas.drawRoundRect(
+                RectF(playerX, playerY, playerX + paddleW, playerY + paddleH), 14f, 14f, paint
+            )
 
             // Ball
             paint.color = Color.WHITE
@@ -179,69 +182,91 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
 
             // Score
             paint.color = Color.WHITE
-            paint.textSize = screenH * 0.06f
+            paint.textSize = screenH * 0.07f
             paint.textAlign = Paint.Align.CENTER
-            canvas.drawText("$cpuScore", screenW / 2f, screenH * 0.35f, paint)
-            canvas.drawText("$playerScore", screenW / 2f, screenH * 0.7f, paint)
-
+            canvas.drawText("$cpuScore", screenW / 2f, screenH * 0.33f, paint)
+            canvas.drawText("$playerScore", screenW / 2f, screenH * 0.72f, paint)
         } finally {
-            surfaceHolder.unlockCanvasAndPost(canvas)
+            try {
+                surfaceHolder.unlockCanvasAndPost(canvas)
+            } catch (e: Exception) {
+                // surface was destroyed
+            }
         }
     }
 
     override fun run() {
-        val targetFps = 60L
-        val frameTime = 1000L / targetFps
-
+        val targetMs = 1000L / 60L
         while (isRunning) {
-            val startTime = System.currentTimeMillis()
+            val start = System.currentTimeMillis()
             update()
             draw()
-            val elapsed = System.currentTimeMillis() - startTime
-            val sleepTime = frameTime - elapsed
-            if (sleepTime > 0) {
-                Thread.sleep(sleepTime)
+            val elapsed = System.currentTimeMillis() - start
+            val sleep = targetMs - elapsed
+            if (sleep > 0) {
+                try {
+                    Thread.sleep(sleep)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
             }
         }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        screenW = width
-        screenH = height
-        if (screenW > 0 && screenH > 0) {
-            initGame()
-        }
+        // dimensions may not be set yet; surfaceChanged fires right after with real values
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        screenW = width
-        screenH = height
-        if (playerScore == 0 && cpuScore == 0) {
-            initGame()
+        if (width > 0 && height > 0) {
+            if (screenW == 0) {
+                initGame(width, height)
+            } else {
+                screenW = width
+                screenH = height
+            }
+            if (!isRunning) {
+                isRunning = true
+                gameThread = Thread(this).also { it.start() }
+            }
         }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        pause()
+        isRunning = false
+        var retry = true
+        while (retry) {
+            try {
+                gameThread?.join()
+                retry = false
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                retry = false
+            }
+        }
+        gameThread = null
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> touchX = event.x
-            MotionEvent.ACTION_UP -> touchX = -1f
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchX = -1f
         }
         return true
     }
 
     fun pause() {
         isRunning = false
-        gameThread?.join()
+        try { gameThread?.join() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
         gameThread = null
     }
 
     fun resume() {
-        isRunning = true
-        gameThread = Thread(this)
-        gameThread?.start()
+        // Thread is managed by surfaceChanged/surfaceDestroyed
+        // Only restart if surface is already available
+        if (screenW > 0 && screenH > 0 && !isRunning) {
+            isRunning = true
+            gameThread = Thread(this).also { it.start() }
+        }
     }
 }
